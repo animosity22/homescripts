@@ -2,12 +2,10 @@
 Description=gmedia mergerfs mount
 Requires=rclone.service
 After=rclone.service
-RequiresMountsFor=/local
-RequiresMountsFor=/GD
 
 [Service]
 Type=forking
-ExecStart=/usr/bin/mergerfs /local:/GD /gmedia -o rw,async_read=false,use_ino,allow_other,func.getattr=newest,category.action=all,category.create=ff,cache.files=partial,dropcacheonclose=true
+ExecStart=/usr/bin/mergerfs /local:/GD /gmedia -o rw,use_ino,allow_other,func.getattr=newest,category.action=all,category.create=ff,cache.files=auto-full
 KillMode=process
 Restart=on-failure
 

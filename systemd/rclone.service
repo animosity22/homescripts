@@ -9,17 +9,38 @@ Environment=RCLONE_CONFIG=/opt/rclone/rclone.conf
 KillMode=none
 RestartSec=5
 ExecStart=/usr/bin/rclone mount gcrypt: /GD \
+# This is for allowing users other than the user running rclone access to the mount
 --allow-other \
+# Google Drive is a polling remote so this value can be set very high and any changes are detected via polling.
 --dir-cache-time 1000h \
+# The log level output 
 --log-level INFO \
+# Location of the log file
 --log-file /opt/rclone/logs/rclone.log \
+# I reduce the poll interval down to 15 seconds as this makes changes appear fast the API quotas per day are huge
 --poll-interval 15s \
+# This is setting the file permission on the mount to user and group have the same access and other can read
 --umask 002 \
---user-agent animosityapp \
+# Please set this to your own value below
+--user-agent randomappname101 \
+# This sets up the remote control daemon so you can issue rc commands locally
 --rc \
+# This is the default port it runs on
 --rc-addr :5572 \
---vfs-read-chunk-size 32M
+# no-auth is used as no one else uses my server and it is not a shared seedbox
+--rc-no-auth \
+# The local disk used for caching
+--cache-dir=/cache \
+# This is used for caching files to local disk for streaming
+--vfs-cache-mode full \
+# This limits the cache size to the value below
+--vfs-cache-max-size 500G \
+# This limits the age in the cache if the size is reached and it removes the oldest files first
+--vfs-cache-max-age 336h \
+# This sets a per file bandwidth control and I limit this to a little bigger than my largest bitrate I'd want to play
+--bwlimit-file 16M
 ExecStop=/bin/fusermount -uz /GD
+ExecStartPost=/usr/bin/rclone rc vfs/refresh recursive=true --rc-addr 127.0.0.1:5572 _async=true
 Restart=on-failure
 User=felix
 Group=felix

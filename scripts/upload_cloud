@@ -5,8 +5,27 @@ export RCLONE_CONFIG
 RCLONE_USER_AGENT=animosityapp
 export RCLONE_USER_AGENT
 
-#exit if running
-if [[ "`pidof -x $(basename $0) -o %PPID`" ]]; then exit; fi
+# Local Drive
+# This must be a local mount point on your server that is used for the source of files
+# WARNING: If you make this your rclone Google Drive mount, it will create a move loop
+# and delete your files!
+# Make sure to this to the local path you are moving from!
+LOCAL=/local
 
-# Move older local files to the cloud
-/usr/bin/rclone move /local/ gcrypt: --log-file /opt/rclone/logs/upload.log -v --exclude-from /opt/rclone/scripts/excludes --delete-empty-src-dirs --fast-list --drive-stop-on-upload-limit
+#exit if running
+if [[ $(pidof -x "$(basename "$0")" -o %PPID) ]]; then exit; fi
+
+#check for excludes file
+if [[ ! -f /opt/rclone/scripts/excludes ]] ; then
+    echo ' excludes is not there, aborting.'
+    exit 1
+fi
+
+#is $LOCAL actually a local disk?
+if /bin/findmnt $LOCAL -o FSTYPE -n | grep fuse; then
+	echo "fuse file system, exitting"
+	exit 1
+fi
+
+# Move older local files to the cloud. I added in 3 days to let files sit a few days so intro anaylsis can happen locally
+/usr/bin/rclone move $LOCAL gcrypt: --log-file /opt/rclone/logs/upload.log -v --exclude-from /opt/rclone/scripts/excludes --delete-empty-src-dirs --fast-list --drive-stop-on-upload-limit --min-age 3d

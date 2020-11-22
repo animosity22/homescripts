@@ -1,98 +1,174 @@
 # Caddy Proxy Server
 
+## Caddy Service File
+```bash
+[Unit]
+Description=Caddy HTTP/2 web server
+Documentation=https://caddyserver.com/docs
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Restart=on-failure
+
+; User and group the process will run as.
+User=felix
+Group=felix
+
+; Letsencrypt-issued certificates will be written to this directory.
+Environment=CLOUDFLARE_API_TOKEN=CLOUDFLARETOKENHERE
+Environment=GOOGLE_CLIENT_ID=YOURCLIENTID
+Environment=GOOGLE_CLIENT_SECRET=YOURSECRET
+Environment=JWT_SECRET=MADEUPSECRETKEY
+Environment=JWT_ISSUER=MADEUPISSUERKEY
+
+ExecStart=/usr/local/bin/caddy run --config /opt/caddy/Caddyfile
+ExecReload=/bin/kill -USR1 $MAINPID
+
+; Use graceful shutdown with a reasonable timeout
+KillMode=mixed
+KillSignal=SIGQUIT
+TimeoutStopSec=5s
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target
+```
+
 ## Google Authentication
 
-For my build, I use this to get the plugins I use:
-```bash
-CADDY_TELEMETRY=on curl https://getcaddy.com | bash -s personal http.cache,http.cgi,http.jwt,http.login,http.realip,tls.dns.cloudflare
-```
-This allows me to use Google Authentication for my logins and CloudFlare for my automatic DNS updates for my hosts.
+For now while Caddy updates the automated build process, I download from:
+
+https://caddyserver.com/download
+
+And pick the following plugins as I use CloudFlare and Google oAuth2:
+
+- github.com/caddy-dns/cloudflare
+- github.com/greenpau/caddy-auth-jwt
+- github.com/greenpau/caddy-auth-portal
 
 I use proxy entries for all my items behind and Google oAuth for my login validation:
 
 ```bash
-# apps servers with auth
-apps.host.com {
-root /opt/www
-browse
-gzip
-realip cloudflare
-log /opt/caddy/logs/apps.log
-tls {
-	dns cloudflare
-}
-jwt {
-    path /
-    redirect /login?backTo={rewrite_uri}
-    except /favicon.ico
-    allow email your@email.us
-    log-file /opt/caddy/logs/jwt.log
-    log-level info
-}
-
-  login {
-    redirect_check_referer false
-    google client_id=yourcliendid.apps.googleusercontent.com,client_secret=yourclientsecret,scope=https://www.googleapis.com/auth/userinfo.email
-    jwt_expiry 168h
-    cookie_expiry 2400h
+# These are the default settings and I store all my items in /opt for my applications I run
+{
+  storage file_system {
+    root /opt/caddy/ssl
   }
+}
 
-proxy /sonarr 127.0.0.1:8989 {
-  transparent
-	}
+# This is no authentication and just how I serve OMBI
+ombi.domain.us {
+tls {
+        dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+}
+log {
+        output file /opt/caddy/logs/ombi.log
+        format single_field common_log
+}
+reverse_proxy localhost:5000
+}
 
-proxy /radarr 127.0.0.1:7878 {
-  transparent
-	}
-
-proxy /tautulli 127.0.0.1:8181 {
-	transparent
-	}
-
-proxy /nzbget 127.0.0.1:9876 {
-	transparent
-	}
-
-proxy /jackett 127.0.0.1:9117 {
-	transparent
-	}
-
-proxy /grafana 127.0.0.1:3333 {
-	without /grafana
-	transparent
-	}
-
-proxy /netdata/ 192.168.1.30:19999 {
-	without /netdata
-	transparent
-	}
-
-proxy /router/ 192.168.1.1:19999 {
-	without /router
-	transparent
-	}
-
-proxy /jackett 127.0.0.1:9117 {
-	transparent
-	}
-
-proxy /bazaar 127.0.0.1:6767 {
-        transparent
+# Every thing in this section is secured by the auth portal
+apps.domain.us {
+tls     {
+        dns cloudflare {env.CLOUDFLARE_API_TOKEN}
         }
 
-
-proxy /kitana 127.0.0.1:31337 {
-        transparent
+log     {
+        output file /opt/caddy/logs/apps.log
+        format single_field common_log
         }
 
-proxy /qbit 127.0.0.1:8080 {
-	transparent
-	without /qbit
-	}
+    route /auth* {
+        auth_portal {
+            path /auth
+            backends {
+                google_oauth2_backend {
+                    method oauth2
+                    realm google
+                    provider google
+                    client_id {$GOOGLE_CLIENT_ID}
+                    client_secret {$GOOGLE_CLIENT_SECRET}
+                    scopes openid email profile
+                    user user@domain.us add role verified
+                }
+            }
+            jwt {
+                token_name access_token
+                token_secret {$JWT_SECRET}
+                token_issuer {$JWT_ISSUER}
+                token_lifetime 604800
+            }
+                }
+     }
+
+    route /tautulli* {
+        jwt {
+          primary yes
+          trusted_tokens {
+            static_secret {
+              token_name access_token
+              token_secret {$JWT_SECRET}
+            }
+          }
+          auth_url /auth
+          allow roles verified
+        }
+        reverse_proxy localhost:8181
+    }
+
+    route /sonarr* {
+        jwt
+        reverse_proxy localhost:8989
+    }
+
+    route /radarr* {
+        jwt
+        reverse_proxy localhost:7878
+        }
+
+    route /bazarr* {
+        jwt
+        reverse_proxy localhost:6767
+        }
+
+    route /nzbget* {
+        jwt
+        reverse_proxy localhost:9876
+        }
+
+    route /jackett* {
+        jwt
+        reverse_proxy localhost:9117
+        }
+
+    route /webssh* {
+        jwt
+        uri strip_prefix /webssh
+        reverse_proxy localhost:7676
+        }
+
+    route /monit* {
+        jwt
+        uri strip_prefix /monit
+        reverse_proxy localhost:2812
+        }
+
+    route /grafana* {
+        jwt
+        uri strip_prefix /grafana
+        reverse_proxy localhost:3333
+        }
+
+    route /qbit* {
+        jwt
+        uri strip_prefix /qbit
+        reverse_proxy localhost:8080
+        }
 
 }
 ```
-
 
 ## Caddy Plex Configuration
 
@@ -101,20 +177,15 @@ I use [Caddy](https://github.com/mholt/caddy) as a proxy server and if you want 
 My plex configuration in my CaddyFile as follows:
 
 ```bash
-# Plex Server
-plex.host.com {
-gzip
-timeouts 1h
-log /opt/caddy/logs/plex.log
+plex.domain.us {
 tls {
-  dns cloudflare
+        dns cloudflare {env.CLOUDFLARE_API_TOKEN}
 }
-proxy / 127.0.0.1:32400 {
- transparent
- websocket
- keepalive 12
- timeout 1h
-    }
+reverse_proxy localhost:32400
+log {
+        output file /opt/caddy/logs/plex.log
+        format single_field common_log
+}
 }
 ```
 
